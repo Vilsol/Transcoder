@@ -88,7 +88,7 @@ def get_frames(file):
 	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 	frames = process.stdout.read().rstrip().decode("utf-8")
 
-	if frames != '':
+	if frames != '' and frames != 'N/A':
 		return int(frames)
 
 	return int(get_fps(file) * get_duration(file))
