@@ -82,7 +82,7 @@ COPY --from=build /root/bin/ffserver /bin/ffserver
 COPY --from=build /root/bin/nasm /bin/nasm
 COPY --from=build /root/bin/ndisasm /bin/ndisasm
 
-RUN pip install --no-cache-dir tqdm pexpect
+RUN pip install --no-cache-dir tqdm pexpect python-telegram-bot
 
 COPY transcoder.py /transcoder.py
 

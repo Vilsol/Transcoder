@@ -1,0 +1,13 @@
+version: '2'
+services:
+  transcoder:
+    build: .
+    image: vilsol/transcoder
+    restart: always
+    tty: true
+    volumes:
+      - "./media:/media"
+    environment:
+      - "BOT_KEY=${BOT_KEY}"
+      - "CHAT_ID=${CHAT_ID}"
+      - "HOST=${HOST}"

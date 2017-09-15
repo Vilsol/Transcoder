@@ -8,9 +8,13 @@ import sys
 import subprocess
 import pexpect
 import math
+import telegram
 
 
 ROOT_PATH = os.getenv('ROOT_PATH', '/media')
+BOT_KEY = os.getenv('BOT_KEY', '')
+CHAT_ID = os.getenv('CHAT_ID', '')
+HOST = os.getenv('HOST', '')
 
 
 def transcode(file, pbar):
@@ -58,6 +62,7 @@ def transcode(file, pbar):
 
 	return (original, converted)
 
+
 def process(file, desc):
 	frames = get_frames(file)
 
@@ -77,6 +82,7 @@ def process(file, desc):
 
 	return result
 
+
 def get_frames(file):
 	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'stream=nb_frames', '-select_streams', '0', file]
 	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -87,6 +93,7 @@ def get_frames(file):
 
 	return int(get_fps(file) * get_duration(file))
 
+
 def get_fps(file):
 	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'stream=r_frame_rate', '-select_streams', '0', file]
 	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -94,10 +101,12 @@ def get_fps(file):
 	fps = fps.split("/")
 	return int(fps[0]) / int(fps[1])
 
+
 def get_duration(file):
 	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'format=duration', file]
 	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 	return int(round(float(process.stdout.read().rstrip().decode("utf-8"))))
+
 
 def has_accessors(file):
 	process = subprocess.Popen('lsof', stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -107,6 +116,7 @@ def has_accessors(file):
 			return True
 
 	return False
+
 
 def is_transcodable(file):
 	if file.endswith("partial~"):
@@ -133,6 +143,7 @@ def is_transcodable(file):
 
 	return False
 
+
 def convert_size(size_bytes):
    if size_bytes == 0:
        return "0B"
@@ -144,13 +155,9 @@ def convert_size(size_bytes):
 
    return "%s %s" % (s, size_name[i])
 
-def search(path, name, depth=0, prefix='', last=True):
-	desc = prefix
 
-	if last:
-		desc += '└─'
-	else:
-		desc += '├─'
+def search(path, name, depth=0, prefix='', last=True):
+	desc = prefix + '+-'
 
 	if depth > 0:
 		print(desc, end='')
@@ -170,24 +177,46 @@ def search(path, name, depth=0, prefix='', last=True):
 		result = (0, 0)
 
 		if is_transcodable(path):
+			print(name + '... ', end='')
+
 			result = process(path, desc + name)
 		
-		if result[0] != 0:
-			diff = round(result[1] / result[0], 4)
+			if result[0] != 0:
+				diff = round(result[1] / result[0], 4)
 
-			oldsize = convert_size(result[0])
-			newsize = convert_size(result[1])
+				oldsize = convert_size(result[0])
+				newsize = convert_size(result[1])
 
-			if result[1] > result[0]:
-				print('{} {} -> {} ({}%) (kept old)'.format(name, oldsize, newsize, diff * 100))
+				if result[1] > result[0]:
+					print('{} -> {} ({}%) (kept old)'.format(name, oldsize, newsize, diff * 100))
+					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff * 100))
+				else:
+					print('{} -> {} ({}%)'.format(name, oldsize, newsize, diff * 100))
+					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff * 100))
 			else:
-				print('{} {} -> {} ({}%)'.format(name, oldsize, newsize, diff * 100))
+				print('failed')
+
 		else:
 			print(name)
 
-	pass
+
+def send_message(message):
+	if BOT_KEY != '' and CHAT_ID != '':
+		if HOST != '':
+			message += '\n*Host:* {}'.format(HOST)
+
+		bot = telegram.Bot(token=BOT_KEY)
+		bot.send_message(
+			chat_id=CHAT_ID,
+			text=message,
+			parse_mode=telegram.ParseMode.MARKDOWN
+		)
+
 
 def scan():
+	send_message("*Transcoder Started*")
 	search(ROOT_PATH, ROOT_PATH)
 
-scan()
+
+if __name__ == "__main__":
+	scan()
