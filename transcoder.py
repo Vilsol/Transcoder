@@ -7,6 +7,7 @@ import time
 import sys
 import subprocess
 import pexpect
+import math
 
 
 ROOT_PATH = os.getenv('ROOT_PATH', '/media')
@@ -27,7 +28,6 @@ def transcode(file, pbar):
 	while True:
 		i = thread.expect_list(cpl, timeout=None)
 		if i == 0:
-			print("the sub process exited")
 			break
 		elif i == 1:
 			line = thread.match.group(0).decode("utf-8")
@@ -46,14 +46,28 @@ def transcode(file, pbar):
 			# print("UN", unknown_line)
 			pass
 
+	original = os.path.getsize(file)
+	converted = os.path.getsize(file + '.new.mkv')
+
+	if original < converted:
+		os.remove(file + '.new.mkv')
+		open(file + '.processed', 'a').close()
+	else:
+		os.remove(file)
+		os.rename(file + '.new.mkv', file)
+
+	return (original, converted)
+
 def process(file, desc):
 	frames = get_frames(file)
 
 	open(file + '.converting', 'a').close()
 
+	result = (0, 0)
+
 	try:
 		pbar = tqdm(total=frames, leave=False, unit='', desc=desc)
-		transcode(file, pbar)
+		result = transcode(file, pbar)
 		pbar.close()
 	except:
 		print(sys.exc_info()[0])
@@ -61,7 +75,16 @@ def process(file, desc):
 
 	os.remove(file + '.converting')
 
+	return result
+
 def get_frames(file):
+	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'stream=nb_frames', '-select_streams', '0', file]
+	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+	frames = process.stdout.read().rstrip().decode("utf-8")
+
+	if frames != '':
+		return int(frames)
+
 	return int(get_fps(file) * get_duration(file))
 
 def get_fps(file):
@@ -92,6 +115,9 @@ def is_transcodable(file):
 	if os.path.isfile(file + ".converting"):
 		return False
 
+	if os.path.isfile(file + ".processed"):
+		return False
+
 	if has_accessors(file):
 		return False
 
@@ -106,6 +132,17 @@ def is_transcodable(file):
 		pass
 
 	return False
+
+def convert_size(size_bytes):
+   if size_bytes == 0:
+       return "0B"
+
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   i = int(math.floor(math.log(size_bytes, 1024)))
+   p = math.pow(1024, i)
+   s = round(size_bytes / p, 2)
+
+   return "%s %s" % (s, size_name[i])
 
 def search(path, name, depth=0, prefix='', last=True):
 	desc = prefix
@@ -130,10 +167,23 @@ def search(path, name, depth=0, prefix='', last=True):
 			else:
 				search(path + '/' + files[i], files[i], depth + 1, prefix + '  ', i + 1 == length)
 	else:
+		result = (0, 0)
+
 		if is_transcodable(path):
-			process(path, desc + name)
+			result = process(path, desc + name)
 		
-		print(name)
+		if result[0] != 0:
+			diff = round(result[1] / result[0], 4)
+
+			oldsize = convert_size(result[0])
+			newsize = convert_size(result[1])
+
+			if result[1] > result[0]:
+				print('{} {} -> {} ({}%) (kept old)'.format(name, oldsize, newsize, diff * 100))
+			else:
+				print('{} {} -> {} ({}%)'.format(name, oldsize, newsize, diff * 100))
+		else:
+			print(name)
 
 	pass
 
