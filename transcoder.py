@@ -15,12 +15,12 @@ ROOT_PATH = os.getenv('ROOT_PATH', '/media')
 BOT_KEY = os.getenv('BOT_KEY', '')
 CHAT_ID = os.getenv('CHAT_ID', '')
 HOST = os.getenv('HOST', '')
-
+CRF = os.getenv('CRF', '16')
 
 def transcode(file, pbar):
 	previous_frame = 0
 
-	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf=16 -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, file)
+	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf={} -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, CRF, file)
 	thread = pexpect.spawn(cmd)
 
 	cpl = thread.compile_pattern_list([
