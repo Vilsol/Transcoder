@@ -22,7 +22,7 @@ def transcode(file, pbar):
 
 	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf=16 -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, file)
 	thread = pexpect.spawn(cmd)
-	
+
 	cpl = thread.compile_pattern_list([
 		pexpect.EOF,
 		"frame= *\d+",
@@ -43,8 +43,6 @@ def transcode(file, pbar):
 				pbar.update(frame_count)
 			except ValueError:
 				print(line)
-
-			thread.close
 		elif i == 2:
 			# unknown_line = thread.match.group(0)
 			# print("UN", unknown_line)
@@ -60,11 +58,11 @@ def transcode(file, pbar):
 		os.remove(file)
 		os.rename(file + '.new.mkv', file)
 
-	return (original, converted)
+	return original, converted
 
 
-def process(file, desc):
-	frames = get_frames(file)
+def process(file, desc, data):
+	frames = get_frames(data)
 
 	open(file + '.converting', 'a').close()
 
@@ -83,29 +81,69 @@ def process(file, desc):
 	return result
 
 
-def get_frames(file):
-	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'stream=nb_frames', '-select_streams', '0', file]
-	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-	frames = process.stdout.read().rstrip().decode("utf-8")
+def get_frames(data):
+	frames = 0
 
-	if frames != '' and frames != 'N/A':
-		return int(frames)
+	for i in data['stream']:
+		temp = data['stream'][i]['nb_frames']
+		if temp != 'N/A':
+			if int(temp) < frames:
+				frames = int(temp)
 
-	return int(get_fps(file) * get_duration(file))
+	if frames > 0:
+		return frames
+
+	return int(get_fps(data) * get_duration(data))
 
 
-def get_fps(file):
-	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'stream=r_frame_rate', '-select_streams', '0', file]
-	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-	fps = process.stdout.read().rstrip().decode("utf-8") 
+def get_fps(data):
+	fps = get_key_from_stream(data, 'r_frame_rate')
+
+	if fps == 'N/A':
+		fps = get_key_from_stream(data, 'avg_frame_rate')
+
 	fps = fps.split("/")
 	return int(fps[0]) / int(fps[1])
 
 
-def get_duration(file):
-	cmd = ['ffprobe', '-v', '0', '-of', 'default=noprint_wrappers=1:nokey=1', '-show_entries', 'format=duration', file]
+def get_duration(data):
+	return int(round(float(data['format']['duration'])))
+
+
+def get_key_from_stream(data, key):
+	for i in data['stream']:
+		if data['stream'][i][key] != 'N/A' and data['stream'][i][key] != '0/0':
+			return data['stream'][i][key]
+
+
+def get_data(file):
+	cmd = ['ffprobe', '-v', '0', '-show_format', '-show_streams', file]
 	process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-	return int(round(float(process.stdout.read().rstrip().decode("utf-8"))))
+
+	data = {'stream': {}}
+
+	stream = -1
+	tag = None
+	for line in process.stdout:
+		line = line.rstrip().decode("utf-8")
+		if line.startswith('['):
+			if tag is None:
+				tag = line[1:-1].lower()
+				if tag == 'stream':
+					stream = stream + 1
+					data[tag][stream] = {}
+				else:
+					data[tag] = {}
+			else:
+				tag = None
+		else:
+			kv = line.split("=")
+			if tag == 'stream':
+				data[tag][stream][kv[0]] = kv[1]
+			else:
+				data[tag][kv[0]] = kv[1]
+
+	return data
 
 
 def has_accessors(file):
@@ -118,7 +156,19 @@ def has_accessors(file):
 	return False
 
 
-def is_transcodable(file):
+def is_transcodable(file, data):
+	if len(data['stream']) == 0:
+		return False
+
+	found = False
+	for i in data['stream']:
+		if data['stream'][i]['codec_name'] == 'h264':
+			found = True
+			break
+
+	if not found:
+		return False
+
 	if file.endswith("partial~"):
 		return False
 
@@ -131,29 +181,19 @@ def is_transcodable(file):
 	if has_accessors(file):
 		return False
 
-	try:
-		cmd = ['ffprobe', '-v', '0', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'default=nokey=1:noprint_wrappers=1', file]
-		process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-		codec = process.stdout.read().rstrip()
-		if codec == b'h264':
-			return True
-	except:
-		print(sys.exc_info()[0])
-		pass
-
-	return False
+	return True
 
 
 def convert_size(size_bytes):
-   if size_bytes == 0:
-       return "0B"
+	if size_bytes == 0:
+		return "0B"
 
-   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-   i = int(math.floor(math.log(size_bytes, 1024)))
-   p = math.pow(1024, i)
-   s = round(size_bytes / p, 2)
+	size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+	i = int(math.floor(math.log(size_bytes, 1024)))
+	p = math.pow(1024, i)
+	s = round(size_bytes / p, 2)
 
-   return "%s %s" % (s, size_name[i])
+	return "%s %s" % (s, size_name[i])
 
 
 def search(path, name, depth=0, prefix='', last=True):
@@ -174,25 +214,25 @@ def search(path, name, depth=0, prefix='', last=True):
 			else:
 				search(path + '/' + files[i], files[i], depth + 1, prefix + '  ', i + 1 == length)
 	else:
-		result = (0, 0)
+		data = get_data(path)
 
-		if is_transcodable(path):
+		if is_transcodable(path, data):
 			print(name + '... ', end='')
 
-			result = process(path, desc + name)
-		
+			result = process(path, desc + name, data)
+
 			if result[0] != 0:
-				diff = round(result[1] / result[0], 4)
+				diff = round((result[1] / result[0]) * 100, 2)
 
 				oldsize = convert_size(result[0])
 				newsize = convert_size(result[1])
 
 				if result[1] > result[0]:
-					print('{} -> {} ({}%) (kept old)'.format(name, oldsize, newsize, diff * 100))
-					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff * 100))
+					print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
 				else:
-					print('{} -> {} ({}%)'.format(name, oldsize, newsize, diff * 100))
-					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff * 100))
+					print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
+					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
 			else:
 				print('failed')
 
