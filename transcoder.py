@@ -64,7 +64,8 @@ def transcode(file, pbar):
 
 		if original < converted:
 			os.remove(file + '.new.mkv')
-			open(file + '.processed', 'a').close()
+			directory = os.path.dirname(file)
+			open(directory + "/." + os.path.basename(file + ".processed"), 'a').close()
 		else:
 			os.remove(file)
 			os.rename(file + '.new.mkv', file)
@@ -190,12 +191,15 @@ def is_transcodable(file, data):
 	if os.path.isfile(file + ".converting"):
 		return False
 
-	if os.path.isfile(file + ".processed"):
-		return False
-
 	directory = os.path.dirname(file)
 
-	if os.path.isfile(directory + ".transcodeignore"):
+	if os.path.isfile(file + ".processed"):
+		os.rename(file + ".processed", directory + "/." + os.path.basename(file) + ".processed")
+
+	if os.path.isfile(directory + "/." + os.path.basename(file) + ".processed"):
+		return False
+
+	if os.path.isfile(directory + "/.transcodeignore"):
 		return False
 
 	if has_accessors(file):
