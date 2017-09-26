@@ -16,6 +16,9 @@ BOT_KEY = os.getenv('BOT_KEY', '')
 CHAT_ID = os.getenv('CHAT_ID', '')
 HOST = os.getenv('HOST', '')
 CRF = os.getenv('CRF', '16')
+H265_TRANSCODE = os.getenv('H265_TRANSCODE', 'true')
+H265_MB_H = os.getenv('H265_MB_H', '1000')
+
 
 def transcode(file, pbar):
 	previous_frame = 0
@@ -178,6 +181,11 @@ def is_transcodable(file, data):
 	if os.path.isfile(file + ".processed"):
 		return False
 
+	directory = os.path.dirname(file)
+
+	if os.path.isfile(directory + ".transcodeignore"):
+		return False
+
 	if has_accessors(file):
 		return False
 
@@ -203,41 +211,49 @@ def search(path, name, depth=0, prefix='', last=True):
 		print(desc, end='')
 
 	if os.path.isdir(path):
-		print(name)
-
 		files = os.listdir(path)
 		length = len(files)
 
-		for i in range(length):
-			if not last:
-				search(path + '/' + files[i], files[i], depth + 1, prefix + '| ', i + 1 == length)
-			else:
-				search(path + '/' + files[i], files[i], depth + 1, prefix + '  ', i + 1 == length)
-	else:
-		data = get_data(path)
-
-		if is_transcodable(path, data):
-			print(name + '... ', end='')
-
-			result = process(path, desc + name, data)
-
-			if result[0] != 0:
-				diff = round((result[1] / result[0]) * 100, 2)
-
-				oldsize = convert_size(result[0])
-				newsize = convert_size(result[1])
-
-				if result[1] > result[0]:
-					print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
-				else:
-					print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
-					send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
-			else:
-				print('failed')
-
+		if ".transcodeignore" in files:
+			print(name + ' [ignored]')
 		else:
 			print(name)
+
+			for i in range(length):
+				if not last:
+					search(path + '/' + files[i], files[i], depth + 1, prefix + '| ', i + 1 == length)
+				else:
+					search(path + '/' + files[i], files[i], depth + 1, prefix + '  ', i + 1 == length)
+	else:
+		try:
+			data = get_data(path)
+		except:
+			data = None
+			print(sys.exc_info()[0])
+
+		if data is not None:
+			if is_transcodable(path, data):
+				print(name + '... ', end='')
+
+				result = process(path, desc + name, data)
+
+				if result[0] != 0:
+					diff = round((result[1] / result[0]) * 100, 2)
+
+					oldsize = convert_size(result[0])
+					newsize = convert_size(result[1])
+
+					if result[1] > result[0]:
+						print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+						send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+					else:
+						print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
+						send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
+				else:
+					print('failed')
+
+			else:
+				print(name)
 
 
 def send_message(message):
