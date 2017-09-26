@@ -18,3 +18,7 @@ Docker container to transcode videos in mounted volume to H265
 1. Create a .env file
 2. Set `BOT_KEY` and `CHAT_ID` variables
 3. Recreate the container
+
+## Ignoring files
+
+You can ignore files using `.transcodeignore`, which will make it not transcode any files in that directory or subdirectories.
