@@ -3,12 +3,12 @@
 from tqdm import tqdm
 
 import os
-import time
 import sys
 import subprocess
 import pexpect
 import math
 import telegram
+import signal
 
 
 ROOT_PATH = os.getenv('ROOT_PATH', '/media')
@@ -18,6 +18,9 @@ HOST = os.getenv('HOST', '')
 CRF = os.getenv('CRF', '16')
 H265_TRANSCODE = os.getenv('H265_TRANSCODE', 'true')
 H265_MB_H = os.getenv('H265_MB_H', '1000')
+
+
+stopping = False
 
 
 def transcode(file, pbar):
@@ -33,6 +36,10 @@ def transcode(file, pbar):
 	])
 
 	while True:
+		if stopping:
+			thread.kill(9)
+			break
+
 		i = thread.expect_list(cpl, timeout=None)
 		if i == 0:
 			break
@@ -51,17 +58,22 @@ def transcode(file, pbar):
 			# print("UN", unknown_line)
 			pass
 
-	original = os.path.getsize(file)
-	converted = os.path.getsize(file + '.new.mkv')
+	if not stopping:
+		original = os.path.getsize(file)
+		converted = os.path.getsize(file + '.new.mkv')
 
-	if original < converted:
-		os.remove(file + '.new.mkv')
-		open(file + '.processed', 'a').close()
-	else:
-		os.remove(file)
-		os.rename(file + '.new.mkv', file)
+		if original < converted:
+			os.remove(file + '.new.mkv')
+			open(file + '.processed', 'a').close()
+		else:
+			os.remove(file)
+			os.rename(file + '.new.mkv', file)
 
-	return original, converted
+		return original, converted
+
+	os.remove(file + '.new.mkv')
+
+	return -1, -1
 
 
 def process(file, desc, data):
@@ -205,6 +217,9 @@ def convert_size(size_bytes):
 
 
 def search(path, name, depth=0, prefix='', last=True):
+	if stopping:
+		return
+
 	desc = prefix + '+-'
 
 	if depth > 0:
@@ -237,7 +252,7 @@ def search(path, name, depth=0, prefix='', last=True):
 
 				result = process(path, desc + name, data)
 
-				if result[0] != 0:
+				if result[0] > 0:
 					diff = round((result[1] / result[0]) * 100, 2)
 
 					oldsize = convert_size(result[0])
@@ -249,7 +264,7 @@ def search(path, name, depth=0, prefix='', last=True):
 					else:
 						print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
 						send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
-				else:
+				elif result[0] != -1:
 					print('failed')
 
 			else:
@@ -269,9 +284,20 @@ def send_message(message):
 		)
 
 
+def sigterm_handler(_signo, _stack_frame):
+	global stopping
+	stopping = True
+
+
 def scan():
+	signal.signal(signal.SIGTERM, sigterm_handler)
+
 	send_message("*Transcoder Started*")
 	search(ROOT_PATH, ROOT_PATH)
+	send_message("*Transcoder Stopped*")
+
+	print()
+	print("Stopped")
 
 
 if __name__ == "__main__":
