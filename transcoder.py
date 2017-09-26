@@ -23,7 +23,7 @@ H265_MB_H = os.getenv('H265_MB_H', '1000')
 stopping = False
 
 
-def transcode(file, pbar):
+def transcode(file, pbar, desc):
 	previous_frame = 0
 
 	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf={} -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, CRF, file)
@@ -35,9 +35,13 @@ def transcode(file, pbar):
 		'(.+)'
 	])
 
+	original = os.path.getsize(file)
+	finished = True
+
 	while True:
 		if stopping:
 			thread.kill(9)
+			finished = False
 			break
 
 		i = thread.expect_list(cpl, timeout=None)
@@ -51,15 +55,24 @@ def transcode(file, pbar):
 				frame_count = frame_number - previous_frame
 				previous_frame = frame_number
 				pbar.update(frame_count)
+
+				if os.path.isfile(file + '.new.mkv'):
+					new_size = os.path.getsize(file + '.new.mkv')
+					pbar.set_description(desc + " ({})".format(convert_size(new_size)))
+					if new_size > original:
+						thread.kill(9)
+						finished = False
+						break
+
 			except ValueError:
 				print(line)
+
 		elif i == 2:
 			# unknown_line = thread.match.group(0)
 			# print("UN", unknown_line)
 			pass
 
 	if not stopping:
-		original = os.path.getsize(file)
 		converted = os.path.getsize(file + '.new.mkv')
 
 		directory = os.path.dirname(file)
@@ -72,11 +85,11 @@ def transcode(file, pbar):
 				os.remove(file)
 				os.rename(file + '.new.mkv', file)
 
-		return original, converted
+		return original, converted, finished
 
 	os.remove(file + '.new.mkv')
 
-	return -1, -1
+	return -1, -1, finished
 
 
 def process(file, desc, data):
@@ -84,11 +97,11 @@ def process(file, desc, data):
 
 	open(file + '.converting', 'a').close()
 
-	result = (0, 0)
+	result = (0, 0, True)
 
 	try:
 		pbar = tqdm(total=frames, leave=False, unit='', desc=desc)
-		result = transcode(file, pbar)
+		result = transcode(file, pbar, desc)
 		pbar.close()
 	except:
 		print(sys.exc_info()[0])
@@ -285,12 +298,16 @@ def search(path, name, depth=0, prefix='', last=True):
 					oldsize = convert_size(result[0])
 					newsize = convert_size(result[1])
 
-					if result[1] > result[0]:
-						print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-						send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+					if result[2]:
+						if result[1] > result[0]:
+							print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+							send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+						else:
+							print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
+							send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
 					else:
-						print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
-						send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
+						print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+						send_message('*{}*\n*Size:* {} --> Gave up at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
 				elif result[0] != -1:
 					print('failed')
 
