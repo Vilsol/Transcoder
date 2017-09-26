@@ -62,13 +62,15 @@ def transcode(file, pbar):
 		original = os.path.getsize(file)
 		converted = os.path.getsize(file + '.new.mkv')
 
-		if original < converted:
-			os.remove(file + '.new.mkv')
-			directory = os.path.dirname(file)
-			open(directory + "/." + os.path.basename(file + ".processed"), 'a').close()
-		else:
-			os.remove(file)
-			os.rename(file + '.new.mkv', file)
+		directory = os.path.dirname(file)
+		with open(directory + "/." + os.path.basename(file + ".processed"), 'w') as f:
+			if original < converted:
+				f.write(str(original))
+				os.remove(file + '.new.mkv')
+			else:
+				f.write(str(converted))
+				os.remove(file)
+				os.rename(file + '.new.mkv', file)
 
 		return original, converted
 
@@ -123,6 +125,9 @@ def get_fps(data):
 
 
 def get_duration(data):
+	if data['format']['duration'] == 'N/A':
+		return 0
+
 	return int(round(float(data['format']['duration'])))
 
 
@@ -176,13 +181,27 @@ def is_transcodable(file, data):
 	if len(data['stream']) == 0:
 		return False
 
-	found = False
+	found_h264 = False
+	found_h265 = False
 	for i in data['stream']:
 		if data['stream'][i]['codec_name'] == 'h264':
-			found = True
+			found_h264 = True
+			break
+		elif data['stream'][i]['codec_name'] == 'h265' or data['stream'][i]['codec_name'] == 'hevc':
+			found_h265 = True
 			break
 
-	if not found:
+	transcode_h265 = False
+
+	if found_h265 and H265_MB_H != '':
+		size = os.path.getsize(file)
+		duration = get_duration(data)
+		if duration > 0:
+			mb_h = ((size / duration) / 1000000) * 3600
+			if mb_h > int(H265_MB_H):
+				transcode_h265 = True
+
+	if not found_h264 and not transcode_h265:
 		return False
 
 	if file.endswith("partial~"):
@@ -218,6 +237,10 @@ def convert_size(size_bytes):
 	s = round(size_bytes / p, 2)
 
 	return "%s %s" % (s, size_name[i])
+
+
+def str2bool(v):
+	return v.lower() in ("yes", "true", "t", "1")
 
 
 def search(path, name, depth=0, prefix='', last=True):
