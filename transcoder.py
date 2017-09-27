@@ -1,5 +1,5 @@
 #!/bin/python3
-
+from pexpect.exceptions import TIMEOUT
 from tqdm import tqdm
 
 import os
@@ -7,8 +7,9 @@ import sys
 import subprocess
 import pexpect
 import math
-import telegram
+import telepot
 import signal
+import time
 
 
 ROOT_PATH = os.getenv('ROOT_PATH', '/media')
@@ -21,10 +22,14 @@ H265_MB_H = os.getenv('H265_MB_H', '1000')
 
 
 stopping = False
+currentMessage = None
+bot = None
 
 
-def transcode(file, pbar, desc):
+def transcode(file, pbar, desc, frames):
+	global currentMessage
 	previous_frame = 0
+	new_size = 0
 
 	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf={} -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, CRF, file)
 	thread = pexpect.spawn(cmd)
@@ -35,16 +40,31 @@ def transcode(file, pbar, desc):
 		'(.+)'
 	])
 
+	basename = os.path.basename(file + ".processed")
 	original = os.path.getsize(file)
 	finished = True
 
+	currentMessage = None
+	update_message(prepare_message(basename, original, 0, 0))
+
+	counter = 0
 	while True:
+		i = thread.expect_list(cpl, timeout=None)
+
 		if stopping:
 			thread.kill(9)
+			time.sleep(0.1)
+			if thread.isalive():
+				try:
+					while True:
+						g = thread.expect_list(cpl, timeout=2)
+						if g == 0:
+							break
+				except TIMEOUT:
+					pass
 			finished = False
 			break
 
-		i = thread.expect_list(cpl, timeout=None)
 		if i == 0:
 			break
 		elif i == 1:
@@ -54,16 +74,31 @@ def transcode(file, pbar, desc):
 				frame_number = int(line.split('=')[-1])
 				frame_count = frame_number - previous_frame
 				previous_frame = frame_number
-				pbar.update(frame_count)
 
 				if os.path.isfile(file + '.new.mkv'):
 					new_size = os.path.getsize(file + '.new.mkv')
-					pbar.set_description(desc + " ({})".format(convert_size(new_size)))
 					if new_size > original:
 						thread.kill(9)
+						time.sleep(0.1)
+						if thread.isalive():
+							try:
+								while True:
+									g = thread.expect_list(cpl, timeout=2)
+									if g == 0:
+										break
+							except TIMEOUT:
+								pass
 						finished = False
 						break
 
+					pbar.set_description(desc + " ({})".format(convert_size(new_size)))
+
+					if counter % 10 == 0:
+						update_message(prepare_message(basename, original, new_size, (previous_frame / frames) * 100))
+
+					counter = counter + 1
+
+				pbar.update(frame_count)
 			except ValueError:
 				print(line)
 
@@ -76,7 +111,7 @@ def transcode(file, pbar, desc):
 		converted = os.path.getsize(file + '.new.mkv')
 
 		directory = os.path.dirname(file)
-		with open(directory + "/." + os.path.basename(file + ".processed"), 'w') as f:
+		with open(directory + "/." + basename, 'w') as f:
 			if original < converted:
 				f.write(str(original))
 				os.remove(file + '.new.mkv')
@@ -86,6 +121,10 @@ def transcode(file, pbar, desc):
 				os.rename(file + '.new.mkv', file)
 
 		return original, converted, finished
+
+	print("Stopping...")
+
+	update_message(prepare_stopping_message(basename, original, new_size, (previous_frame / frames) * 100))
 
 	os.remove(file + '.new.mkv')
 
@@ -101,7 +140,7 @@ def process(file, desc, data):
 
 	try:
 		pbar = tqdm(total=frames, leave=False, unit='', desc=desc)
-		result = transcode(file, pbar, desc)
+		result = transcode(file, pbar, desc, frames)
 		pbar.close()
 	except:
 		print(sys.exc_info()[0])
@@ -257,6 +296,8 @@ def str2bool(v):
 
 
 def search(path, name, depth=0, prefix='', last=True):
+	global stopping
+
 	if stopping:
 		return
 
@@ -291,6 +332,7 @@ def search(path, name, depth=0, prefix='', last=True):
 				print(name + '... ', end='')
 
 				result = process(path, desc + name, data)
+				print(stopping)
 
 				if result[0] > 0:
 					diff = round((result[1] / result[0]) * 100, 2)
@@ -301,35 +343,73 @@ def search(path, name, depth=0, prefix='', last=True):
 					if result[2]:
 						if result[1] > result[0]:
 							print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-							send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+							update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
 						else:
 							print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
-							send_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
+							update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
 					else:
 						print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-						send_message('*{}*\n*Size:* {} --> Gave up at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
-				elif result[0] != -1:
+						update_message('*{}*\n*Size:* {} --> Gave up at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+				elif result[0] == 0:
 					print('failed')
 
 			else:
 				print(name)
 
 
-def send_message(message):
-	if BOT_KEY != '' and CHAT_ID != '':
+def prepare_message(filename, original_size, current_size, percentage_complete):
+	diff = round((current_size / original_size) * 100, 2)
+	return '*{}*' \
+	       '\n*Size:* {} --> {} ({}%)' \
+	       '\n*Status:* Transcoding: {}%' \
+		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2))
+
+
+def prepare_stopping_message(filename, original_size, current_size, percentage_complete):
+	diff = round((current_size / original_size) * 100, 2)
+	return '*{}*' \
+	       '\n*Size:* {} --> {} ({}%)' \
+	       '\n*Status:* Stopped at {}%' \
+		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2))
+
+
+def update_message(message):
+	global currentMessage, bot
+	if bot is not None:
 		if HOST != '':
 			message += '\n*Host:* {}'.format(HOST)
 
-		bot = telegram.Bot(token=BOT_KEY)
-		bot.send_message(
+		if currentMessage is None:
+			sent = bot.sendMessage(
+				chat_id=CHAT_ID,
+				text=message,
+				parse_mode='Markdown'
+			)
+			currentMessage = telepot.message_identifier(sent)
+		else:
+			bot.editMessageText(
+				currentMessage,
+				text=message,
+				parse_mode='Markdown'
+			)
+
+
+def send_message(message):
+	global bot
+	if bot is not None:
+		if HOST != '':
+			message += '\n*Host:* {}'.format(HOST)
+
+		bot.sendMessage(
 			chat_id=CHAT_ID,
 			text=message,
-			parse_mode=telegram.ParseMode.MARKDOWN
+			parse_mode='Markdown'
 		)
 
 
 def sigterm_handler(_signo, _stack_frame):
 	global stopping
+	print("Caught", _signo)
 	stopping = True
 
 
@@ -345,4 +425,9 @@ def scan():
 
 
 if __name__ == "__main__":
+	if BOT_KEY != '' and CHAT_ID != '':
+		bot = telepot.Bot(token=BOT_KEY)
+
 	scan()
+
+	sys.exit(0)
