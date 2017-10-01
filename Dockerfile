@@ -22,6 +22,8 @@ COPY --from=build /root/bin/ndisasm /bin/ndisasm
 
 RUN pip install --no-cache-dir tqdm pexpect telepot
 
+VOLUME /media
+
 COPY transcoder.py /transcoder.py
 
 CMD ["/usr/local/bin/python3", "/transcoder.py"]
