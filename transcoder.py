@@ -341,20 +341,20 @@ def search(path, name, depth=0, prefix='', last=True):
 					oldsize = convert_size(result[0])
 					newsize = convert_size(result[1])
 
-					if result[3]:
-						if result[2]:
-							if result[1] > result[0]:
-								print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-								update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
-							else:
-								print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
-								update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
+					if result[2]:
+						if result[1] > result[0]:
+							print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+							update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
 						else:
+							print('{} -> {} ({}%)'.format(oldsize, newsize, diff))
+							update_message('*{}*\n*Size:* {} --> {} ({}%)\n*Status:* Replaced with new'.format(name, oldsize, newsize, diff))
+					else:
+						if result[1] > result[0]:
 							print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
 							update_message('*{}*\n*Size:* {} --> Gave up at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
-					else:
-						print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
-						update_message('*{}*\n*Size:* {} --> Failed at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
+						else:
+							print('{} -> {} ({}%) (kept old)'.format(oldsize, newsize, diff))
+							update_message('*{}*\n*Size:* {} --> Failed at {} ({}%)\n*Status:* Kept old'.format(name, oldsize, newsize, diff))
 				elif result[0] == 0:
 					print('failed')
 

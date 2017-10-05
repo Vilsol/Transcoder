@@ -3,10 +3,10 @@ services:
   transcoder:
     build: .
     image: vilsol/transcoder
-    restart: always
+    #restart: always
     tty: true
     volumes:
-      - "./media:/media"
+      - "C:\\Users\\Vilsol\\Documents\\Docker\\TestTranscode:/media"
     environment:
       - "BOT_KEY=${BOT_KEY}"
       - "CHAT_ID=${CHAT_ID}"
