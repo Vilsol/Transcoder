@@ -367,7 +367,8 @@ def prepare_message(filename, original_size, current_size, percentage_complete):
 	return '*{}*' \
 	       '\n*Size:* {} --> {} ({}%)' \
 	       '\n*Status:* Transcoding: {}%' \
-		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2))
+	       '\n*Expected Size:* {}' \
+		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2), convert_size(current_size * 100 / percentage_complete))
 
 
 def prepare_stopping_message(filename, original_size, current_size, percentage_complete):
