@@ -364,11 +364,16 @@ def search(path, name, depth=0, prefix='', last=True):
 
 def prepare_message(filename, original_size, current_size, percentage_complete):
 	diff = round((current_size / original_size) * 100, 2)
+	
+	expected = 0
+	if percentage_complete > 0:
+		expected = convert_size(current_size * 100 / percentage_complete)
+	
 	return '*{}*' \
 	       '\n*Size:* {} --> {} ({}%)' \
 	       '\n*Status:* Transcoding: {}%' \
 	       '\n*Expected Size:* {}' \
-		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2), convert_size(current_size * 100 / percentage_complete))
+		.format(filename, convert_size(original_size), convert_size(current_size), diff, round(percentage_complete, 2), expected)
 
 
 def prepare_stopping_message(filename, original_size, current_size, percentage_complete):
