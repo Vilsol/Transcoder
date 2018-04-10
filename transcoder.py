@@ -4,6 +4,7 @@ from tqdm import tqdm
 
 import os
 import sys
+import traceback
 import subprocess
 import pexpect
 import math
@@ -19,6 +20,7 @@ HOST = os.getenv('HOST', '')
 CRF = os.getenv('CRF', '16')
 H265_TRANSCODE = os.getenv('H265_TRANSCODE', 'true')
 H265_MB_H = os.getenv('H265_MB_H', '1000')
+DEBUG_ON = os.getenv("DEBUG_ON", 'false')
 
 
 stopping = False
@@ -32,11 +34,16 @@ def transcode(file, pbar, desc, frames):
 	new_size = 0
 
 	cmd = 'ffmpeg -y -i "{}" -map 0 -c copy -c:v libx265 -preset ultrafast -x265-params crf={} -c:a libfdk_aac -strict -2 -b:a 256k "{}.new.mkv"'.format(file, CRF, file)
+
+	if DEBUG_ON == 'true':
+		print("\nStarting ffmpeg: {}".format(cmd))
+
 	thread = pexpect.spawn(cmd)
 
 	cpl = thread.compile_pattern_list([
 		pexpect.EOF,
 		"frame= *\d+",
+		"video:.*? audio:.*? subtitle:.*? other streams:.*? global headers:.*? muxing overhead: .*?"
 		'(.+)'
 	])
 
@@ -46,11 +53,14 @@ def transcode(file, pbar, desc, frames):
 	currentMessage = None
 	update_message(prepare_message(os.path.basename(file), original, 0, 0))
 
+	success = False
+
 	counter = 0
 	while True:
 		i = thread.expect_list(cpl, timeout=None)
 
 		if stopping:
+			print("Killing ffmpeg")
 			thread.kill(9)
 			time.sleep(0.1)
 			if thread.isalive():
@@ -65,6 +75,8 @@ def transcode(file, pbar, desc, frames):
 			break
 
 		if i == 0:
+			if DEBUG_ON == 'true':
+				print("ffmpeg exited")
 			break
 		elif i == 1:
 			line = thread.match.group(0).decode("utf-8")
@@ -100,21 +112,33 @@ def transcode(file, pbar, desc, frames):
 				pbar.update(frame_count)
 			except ValueError:
 				print(line)
+				traceback.print_exc(file=sys.stdout)
 
 		elif i == 2:
+			success = True
+			if DEBUG_ON == 'true':
+				print("Finished successfully!")
+
+		elif i == 3:
 			# unknown_line = thread.match.group(0)
 			# print("UN", unknown_line)
 			pass
 
+	if not success:
+		finished = False
+
 	if not stopping:
-		converted = os.path.getsize(file + '.new.mkv')
+		converted = 0
+
+		if os.path.exists(file + '.new.mkv'):
+			converted = os.path.getsize(file + '.new.mkv')
 
 		directory = os.path.dirname(file)
 		with open(directory + "/." + os.path.basename(file + ".processed"), 'w') as f:
-			if original < converted:
+			if original < converted or not success:
 				f.write(str(original))
 				os.remove(file + '.new.mkv')
-			elif converted > 1000000:
+			elif converted > 1000000 and success:
 				f.write(str(converted))
 				os.remove(file)
 				os.rename(file + '.new.mkv', file)
@@ -144,7 +168,7 @@ def process(file, desc, data):
 		result = transcode(file, pbar, desc, frames)
 		pbar.close()
 	except:
-		print(sys.exc_info()[0])
+		traceback.print_exc(file=sys.stdout)
 		pass
 
 	os.remove(file + '.converting')
@@ -326,14 +350,13 @@ def search(path, name, depth=0, prefix='', last=True):
 			data = get_data(path)
 		except:
 			data = None
-			print(sys.exc_info()[0])
+			traceback.print_exc(file=sys.stdout)
 
 		if data is not None:
 			if is_transcodable(path, data):
 				print(name + '... ', end='')
 
 				result = process(path, desc + name, data)
-				print(stopping)
 
 				if result[0] > 0:
 					diff = round((result[1] / result[0]) * 100, 2)
@@ -390,19 +413,23 @@ def update_message(message):
 		if HOST != '':
 			message += '\n*Host:* {}'.format(HOST)
 
-		if currentMessage is None:
-			sent = bot.sendMessage(
-				chat_id=CHAT_ID,
-				text=message,
-				parse_mode='Markdown'
-			)
-			currentMessage = telepot.message_identifier(sent)
-		else:
-			bot.editMessageText(
-				currentMessage,
-				text=message,
-				parse_mode='Markdown'
-			)
+		try:
+			if currentMessage is None:
+				sent = bot.sendMessage(
+					chat_id=CHAT_ID,
+					text=message,
+					parse_mode='Markdown'
+				)
+				currentMessage = telepot.message_identifier(sent)
+			else:
+				bot.editMessageText(
+					currentMessage,
+					text=message,
+					parse_mode='Markdown'
+				)
+		except:
+			traceback.print_exc(file=sys.stdout)
+			print("Failed to update TG message!")
 
 
 def send_message(message):
@@ -411,11 +438,15 @@ def send_message(message):
 		if HOST != '':
 			message += '\n*Host:* {}'.format(HOST)
 
-		bot.sendMessage(
-			chat_id=CHAT_ID,
-			text=message,
-			parse_mode='Markdown'
-		)
+		try:
+			bot.sendMessage(
+				chat_id=CHAT_ID,
+				text=message,
+				parse_mode='Markdown'
+			)
+		except:
+			traceback.print_exc(file=sys.stdout)
+			print("Failed to send TG message!")
 
 
 def sigterm_handler(_signo, _stack_frame):
