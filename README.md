@@ -1,3 +1,7 @@
+# DEPRECATED
+
+This repository is discontinued in favor of https://github.com/Vilsol/transcoder-go
+
 # Transcoder
 
 Docker container to transcode videos in mounted volume to H265
